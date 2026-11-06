@@ -230,23 +230,32 @@ export function carriesBundle(setter) {
 }
 
 /**
- * The nearest setter called `name` seen from `graph`: own graph first,
- * then up. Returns { node, graph } or null. `accept` narrows the kinds.
+ * The setter called `name`, seen from anywhere in the graph. Constants are
+ * global by name: a getter at any level can read a setter defined inside a
+ * subgraph (or vice versa), not just one above it -- so the search covers
+ * every graph, not only this one and its ancestors. A name backed by more
+ * than one setter is ambiguous and refuses rather than picking a copy: two
+ * same-named setters in different subgraphs coexist today (uniquify scopes
+ * to self + ancestors), and silently choosing one would run the wrong
+ * bundle. Same-level duplicates are already auto-renamed, so this only
+ * guards cross-subgraph name reuse. Returns { node, graph } or null.
  */
 export function findConstantSetter(graph, name, accept = isConstantSetter) {
     if (!name) return null;
-    for (const g of graphAncestors(graph)) {
-        const node = nodesOf(g).find((n) => accept(n)
-                                           && constantOf(n) === name);
-        if (node) return { node, graph: g };
+    let found = null;
+    for (const g of allGraphs(rootOf(graph))) {
+        const node = nodesOf(g).find((n) => accept(n) && constantOf(n) === name);
+        if (!node) continue;
+        if (found) return null;   // ambiguous: two setters share the name
+        found = { node, graph: g };
     }
-    return null;
+    return found;
 }
 
-/** Setter names visible from `graph`, sorted. */
+/** Setter names visible from anywhere in the graph, sorted. */
 function visibleSetterNames(graph, accept = () => true) {
     const names = new Set();
-    for (const g of graphAncestors(graph)) {
+    for (const g of allGraphs(rootOf(graph))) {
         for (const n of nodesOf(g)) {
             if (!isConstantSetter(n) || !accept(n)) continue;
             const name = constantOf(n);

@@ -948,22 +948,21 @@ function setterFor(getNode) {
     // / Unbundle "get" share one namespace (obvpm_constants.js).
     const key = constantOf(getNode);
     if (!key) return null;
-    const find = (g, depth) => {
-        if (!g || depth >= 8) return null;
-        const hit = (g._nodes ?? g.nodes ?? []).find(
-            (n) => isConstantSetter(n) && constantOf(n) === key);
-        if (hit) return hit;
-        const parents = [...new Set(instancesOf(g).map((n) => n.graph))];
-        if (!parents.length) return null;
-        let found = null;
-        for (const p of parents) {
-            const h = find(p, depth + 1);
-            if (!h || (found && h !== found)) return null;
-            found = h;
+    // Constants are global by name: search every graph from the root down,
+    // so a getter at any level finds a setter defined inside (or outside) a
+    // subgraph. A name backed by more than one setter is ambiguous and
+    // refuses rather than picking -- mirrors findConstantSetter in obvpm_constants.js.
+    const collect = (g, depth, acc) => {
+        if (!g || depth >= 8) return;
+        for (const n of g._nodes ?? g.nodes ?? []) {
+            if (isConstantSetter(n) && constantOf(n) === key) acc.push(n);
+            if (n.subgraph) collect(n.subgraph, depth + 1, acc);
         }
-        return found;
     };
-    return find(getNode.graph, 0);
+    const root = app.graph ?? app.rootGraph;
+    const matches = [];
+    collect(root, 0, matches);
+    return matches.length === 1 ? matches[0] : null;
 }
 
 /**
